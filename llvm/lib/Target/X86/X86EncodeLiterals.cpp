@@ -80,5 +80,6 @@ bool X86EncodeLiteralsPass::runOnMachineFunction(MachineFunction &MF) {
 
 bool X86EncodeLiteralsPass::isStoreLocalValue(MachineInstr &MI) {
   unsigned Opcode = MI.getOpcode();
-  return Opcode == X86::MOV8mi || Opcode == X86::MOV16mi || Opcode == X86::MOV32mi || Opcode == X86::MOV64mi32;
+  return Opcode == X86::MOV8mi || Opcode == X86::MOV16mi ||
+         Opcode == X86::MOV32mi || Opcode == X86::MOV64mi32;
 }
