@@ -48,6 +48,8 @@ private:
   MachineRegisterInfo *MRI = nullptr;
   const X86InstrInfo *TII = nullptr;
   const X86RegisterInfo *TRI = nullptr;
+
+  bool isStoreLocalValue(MachineInstr &);
 };
 
 } // end anonymous namespace
@@ -68,9 +70,15 @@ bool X86EncodeLiteralsPass::runOnMachineFunction(MachineFunction &MF) {
 
   for (auto &MBB : MF) {
     for (auto &MI : MBB) {
-      errs() << MI;
+      if (isStoreLocalValue(MI))
+        errs() << MI;
     }
   }
 
   return Changed;
+}
+
+bool X86EncodeLiteralsPass::isStoreLocalValue(MachineInstr &MI) {
+  unsigned Opcode = MI.getOpcode();
+  return Opcode == X86::MOV8mi || Opcode == X86::MOV16mi || Opcode == X86::MOV32mi || Opcode == X86::MOV64mi32;
 }
