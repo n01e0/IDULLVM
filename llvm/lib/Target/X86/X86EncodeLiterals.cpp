@@ -70,8 +70,12 @@ bool X86EncodeLiteralsPass::runOnMachineFunction(MachineFunction &MF) {
 
   for (auto &MBB : MF) {
     for (auto &MI : MBB) {
-      if (isStoreLocalValue(MI))
-        errs() << MI;
+      if (isStoreLocalValue(MI)) {
+        errs() << "-----\n" << MI;
+        for (unsigned i = 0; i < MI.getNumOperands(); i++) {
+          errs() << MI.getOperand(i) << '\n';
+        }
+      }
     }
   }
 
