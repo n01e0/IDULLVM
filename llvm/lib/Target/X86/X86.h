@@ -154,6 +154,11 @@ FunctionPass *createX86LoadValueInjectionRetHardeningPass();
 FunctionPass *createX86SpeculativeLoadHardeningPass();
 FunctionPass *createX86SpeculativeExecutionSideEffectSuppression();
 
+/// Return a pass that encode literals
+FunctionPass *createX86EncodeLiterals();
+
+void initializeX86EncodeLiteralsPassPass(PassRegistry &);
+
 void initializeEvexToVexInstPassPass(PassRegistry &);
 void initializeFixupBWInstPassPass(PassRegistry &);
 void initializeFixupLEAPassPass(PassRegistry &);
