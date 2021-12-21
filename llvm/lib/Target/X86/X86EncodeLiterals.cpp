@@ -50,6 +50,7 @@ private:
   const X86RegisterInfo *TRI = nullptr;
 
   bool isStoreLocalValue(MachineInstr &);
+  MachineOperand &getLiteralOperand(MachineInstr &);
 };
 
 } // end anonymous namespace
@@ -71,8 +72,8 @@ bool X86EncodeLiteralsPass::runOnMachineFunction(MachineFunction &MF) {
   for (auto &MBB : MF) {
     for (auto &MI : MBB) {
       if (isStoreLocalValue(MI)) {
-        MachineOperand &Lit = MI.getOperand(MI.getNumOperands()-1);
-        errs() << Lit << '\n';
+        MachineOperand &Lit = getLiteralOperand(MI);
+        errs() << Lit << "\n";
       }
     }
   }
@@ -85,3 +86,11 @@ bool X86EncodeLiteralsPass::isStoreLocalValue(MachineInstr &MI) {
   return Opcode == X86::MOV8mi || Opcode == X86::MOV16mi ||
          Opcode == X86::MOV32mi || Opcode == X86::MOV64mi32;
 }
+
+MachineOperand &X86EncodeLiteralsPass::getLiteralOperand(MachineInstr &MI) {
+  MachineOperand &Lit = MI.getOperand(MI.getNumOperands() - 1);
+  assert(Lit.isImm());
+  return Lit;
+}
+
+
