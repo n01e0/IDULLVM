@@ -66,7 +66,11 @@ bool X86EncodeLiteralsPass::runOnMachineFunction(MachineFunction &MF) {
   if (!EnableEncodeLiterals)
     return false;
 
-  errs() << MF.getFunction().getName() << '\n';
+  for (auto &MBB : MF) {
+    for (auto &MI : MBB) {
+      errs() << MI;
+    }
+  }
 
   return Changed;
 }
