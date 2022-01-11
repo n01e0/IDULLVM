@@ -21,6 +21,7 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/raw_ostream.h"
+#include <bits/stdint-uintn.h>
 #include <cassert>
 #include <cstdint>
 #include <random>
@@ -32,6 +33,12 @@ using namespace llvm;
 static cl::opt<bool> EnableEncodeLiterals("enable-encode-literals",
                                           cl::desc("X86: Encode Literals"),
                                           cl::init(false));
+
+static inline bool isStoreLocalValue(MachineInstr &MI);
+
+MachineBasicBlock::instr_iterator skip(MachineBasicBlock *MBB, unsigned Index);
+
+static inline unsigned getXorOpc(MachineInstr &MI);
 
 namespace {
 
@@ -50,11 +57,11 @@ private:
   MachineRegisterInfo *MRI = nullptr;
   const X86InstrInfo *TII = nullptr;
   const X86RegisterInfo *TRI = nullptr;
+  inline void buildXor(MachineInstr &MI, unsigned Index, uint64_t Operand);
 
-  bool isStoreLocalValue(MachineInstr &);
-  MachineOperand &getLiteralOperand(MachineInstr &);
-  void obfuscateLiteralOperand(MachineFunction &, MachineInstr &, unsigned);
-  MachineBasicBlock::instr_iterator skip(MachineBasicBlock *, unsigned);
+
+  MachineOperand &getLiteralOperand(MachineInstr &MI, unsigned Offset);
+  void obfuscateLiteralOperand(MachineFunction &MF, MachineInstr &MI, unsigned Index);
 };
 
 } // end anonymous namespace
@@ -66,6 +73,50 @@ FunctionPass *llvm::createX86EncodeLiterals() {
 }
 INITIALIZE_PASS(X86EncodeLiteralsPass, DEBUG_TYPE, "X86 Encode Literals pass",
                 false, false)
+
+static inline bool isStoreLocalValue(MachineInstr &MI) {
+  unsigned Opcode = MI.getOpcode();
+  return Opcode == X86::MOV8mi || Opcode == X86::MOV16mi ||
+         Opcode == X86::MOV32mi || Opcode == X86::MOV64mi32;
+}
+
+MachineBasicBlock::instr_iterator
+skip(MachineBasicBlock *MBB, unsigned Index) {
+  auto I = MBB->instr_begin();
+  auto E = MBB->instr_end();
+  unsigned Cur = 0;
+  while (I != E && Cur != Index)
+    ++I, ++Cur;
+  return ++I;
+}
+
+static inline unsigned getXorOpc(MachineInstr &MI) {
+  assert(isStoreLocalValue(MI));
+  switch (MI.getOpcode()) {
+    case X86::MOV8mi:
+      return X86::XOR8mi;
+    case X86::MOV16mi:
+      return X86::XOR16mi;
+    case X86::MOV32mi:
+      return X86::XOR32mi;
+    case X86::MOV64mi32:
+      return X86::XOR64mi32;
+    default:
+      assert(1 && "unreachable");
+      return 0;
+  }
+}
+
+inline void X86EncodeLiteralsPass::buildXor(MachineInstr &MI, unsigned Index, uint64_t Operand) {
+  MachineBasicBlock *PMBB = MI.getParent();
+  MachineBasicBlock::instr_iterator Iter = skip(PMBB, Index);
+  int64_t Offset = MI.getOperand(3).getImm();
+  unsigned XOROpc = getXorOpc(MI);
+
+  addRegOffset(BuildMI(*PMBB, Iter, MI.getDebugLoc(), TII->get(XOROpc)),
+               X86::RBP, true, Offset)
+      .addImm(Operand);
+}
 
 bool X86EncodeLiteralsPass::runOnMachineFunction(MachineFunction &MF) {
   bool Changed = false;
@@ -91,103 +142,27 @@ bool X86EncodeLiteralsPass::runOnMachineFunction(MachineFunction &MF) {
   return Changed;
 }
 
-bool X86EncodeLiteralsPass::isStoreLocalValue(MachineInstr &MI) {
-  unsigned Opcode = MI.getOpcode();
-  return Opcode == X86::MOV8mi || Opcode == X86::MOV16mi ||
-         Opcode == X86::MOV32mi || Opcode == X86::MOV64mi32;
-}
-
-MachineOperand &X86EncodeLiteralsPass::getLiteralOperand(MachineInstr &MI) {
+MachineOperand &X86EncodeLiteralsPass::getLiteralOperand(MachineInstr &MI, unsigned Offset) {
   MachineOperand &Lit = MI.getOperand(MI.getNumOperands() - 1);
   assert(Lit.isImm());
   return Lit;
 }
 
-MachineBasicBlock::instr_iterator
-X86EncodeLiteralsPass::skip(MachineBasicBlock *MBB, unsigned Index) {
-  auto I = MBB->instr_begin();
-  auto E = MBB->instr_end();
-  unsigned Cur = 0;
-  while (I != E && Cur != Index)
-    ++I, ++Cur;
-  return ++I;
-}
-
 void X86EncodeLiteralsPass::obfuscateLiteralOperand(MachineFunction &MF,
                                                     MachineInstr &MI,
                                                     unsigned Index) {
-  MachineOperand &Lit = getLiteralOperand(MI);
-  MachineBasicBlock *PMBB = MI.getParent();
-  MachineBasicBlock::instr_iterator Iter = skip(PMBB, Index);
   unsigned LitOffset = MI.getNumOperands() - 1;
-  int64_t Offset = MI.getOperand(3).getImm();
+  MachineOperand &Lit = getLiteralOperand(MI, LitOffset);
 
-  switch (MI.getOpcode()) {
-  case X86::MOV8mi: {
-    std::random_device seed_gen;
-    std::mt19937_64 mt(seed_gen());
-    uint8_t Rnd = (uint8_t)(mt() & 0xff);
-    uint8_t Imm = (uint8_t)Lit.getImm();
-    unsigned XOROpc = X86::XOR8mi;
-    // replace literal operand by rnd
-    MI.RemoveOperand(LitOffset);
-    MachineOperand OpRnd = MachineOperand::CreateImm(Rnd);
-    MI.addOperand(OpRnd);
+  std::random_device seed_gen;
+  std::mt19937_64 mt(seed_gen());
 
-    addRegOffset(BuildMI(*PMBB, Iter, MI.getDebugLoc(), TII->get(XOROpc)),
-                 X86::RBP, true, Offset)
-        .addImm(Rnd ^ Imm);
-    break;
-  }
-  case X86::MOV16mi: {
-    std::random_device seed_gen;
-    std::mt19937_64 mt(seed_gen());
-    uint16_t Rnd = (uint16_t)(mt() & 0xffff);
-    uint16_t Imm = (uint16_t)Lit.getImm();
-    unsigned XOROpc = X86::XOR16mi;
-    // replace literal operand by rnd
-    MI.RemoveOperand(LitOffset);
-    MachineOperand OpRnd = MachineOperand::CreateImm(Rnd);
-    MI.addOperand(OpRnd);
+  uint64_t Rnd = mt();
+  uint64_t Imm = Lit.getImm();
+  // replace literal operand by rnd
+  MI.RemoveOperand(LitOffset);
+  MachineOperand OpRnd = MachineOperand::CreateImm(Rnd);
+  MI.addOperand(OpRnd);
 
-    addRegOffset(BuildMI(*PMBB, Iter, MI.getDebugLoc(), TII->get(XOROpc)),
-                 X86::RBP, true, Offset)
-        .addImm(Rnd ^ Imm);
-    break;
-  }
-  case X86::MOV32mi: {
-    std::random_device seed_gen;
-    std::mt19937_64 mt(seed_gen());
-    uint32_t Rnd = (uint32_t)(mt() & 0xffffffff);
-    uint32_t Imm = (uint32_t)Lit.getImm();
-    unsigned XOROpc = X86::XOR32mi;
-    // replace literal operand by rnd
-    MI.RemoveOperand(LitOffset);
-    MachineOperand OpRnd = MachineOperand::CreateImm(Rnd);
-    MI.addOperand(OpRnd);
-
-    addRegOffset(BuildMI(*PMBB, Iter, MI.getDebugLoc(), TII->get(XOROpc)),
-                 X86::RBP, true, Offset)
-        .addImm(Rnd ^ Imm);
-    break;
-  }
-  case X86::MOV64mi32: {
-    std::random_device seed_gen;
-    std::mt19937_64 mt(seed_gen());
-    uint32_t Rnd = (uint32_t)(mt() & 0xffffffff);
-    uint32_t Imm = (uint32_t)Lit.getImm();
-    unsigned XOROpc = X86::XOR64mi32;
-    // replace literal operand by rnd
-    MI.RemoveOperand(LitOffset);
-    MachineOperand OpRnd = MachineOperand::CreateImm(Rnd);
-    MI.addOperand(OpRnd);
-
-    addRegOffset(BuildMI(*PMBB, Iter, MI.getDebugLoc(), TII->get(XOROpc)),
-                 X86::RBP, true, Offset)
-        .addImm(Rnd ^ Imm);
-    break;
-  }
-  default:
-    assert(1 && "unreachable");
-  }
+  buildXor(MI, Index, Imm ^ Rnd);
 }
