@@ -1,8 +1,8 @@
 #include "MCTargetDesc/X86BaseInfo.h"
 #include "X86.h"
+#include "X86InstrBuilder.h"
 #include "X86InstrInfo.h"
 #include "X86Subtarget.h"
-#include "X86InstrBuilder.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -74,13 +74,13 @@ bool X86EncodeLiteralsPass::runOnMachineFunction(MachineFunction &MF) {
   TII = MF.getSubtarget<X86Subtarget>().getInstrInfo();
   TRI = MF.getSubtarget<X86Subtarget>().getRegisterInfo();
 
-
   if (!EnableEncodeLiterals)
     return false;
 
   for (auto &MBB : MF) {
     unsigned Index = 0;
-    for (MachineBasicBlock::iterator MI = MBB.begin(), E = MBB.end(); MI != E; ++MI, ++Index) {
+    for (MachineBasicBlock::iterator MI = MBB.begin(), E = MBB.end(); MI != E;
+         ++MI, ++Index) {
       if (isStoreLocalValue(*MI)) {
         obfuscateLiteralOperand(MF, *MI, Index);
         Changed = true;
@@ -103,7 +103,8 @@ MachineOperand &X86EncodeLiteralsPass::getLiteralOperand(MachineInstr &MI) {
   return Lit;
 }
 
-MachineBasicBlock::instr_iterator X86EncodeLiteralsPass::skip(MachineBasicBlock *MBB, unsigned Index) {
+MachineBasicBlock::instr_iterator
+X86EncodeLiteralsPass::skip(MachineBasicBlock *MBB, unsigned Index) {
   auto I = MBB->instr_begin();
   auto E = MBB->instr_end();
   unsigned Cur = 0;
@@ -112,75 +113,81 @@ MachineBasicBlock::instr_iterator X86EncodeLiteralsPass::skip(MachineBasicBlock 
   return ++I;
 }
 
-void X86EncodeLiteralsPass::obfuscateLiteralOperand(MachineFunction &MF, MachineInstr &MI, unsigned Index) {
+void X86EncodeLiteralsPass::obfuscateLiteralOperand(MachineFunction &MF,
+                                                    MachineInstr &MI,
+                                                    unsigned Index) {
   MachineOperand &Lit = getLiteralOperand(MI);
   MachineBasicBlock *PMBB = MI.getParent();
   MachineBasicBlock::instr_iterator Iter = skip(PMBB, Index);
   unsigned LitOffset = MI.getNumOperands() - 1;
   int64_t Offset = MI.getOperand(3).getImm();
-  
+
   switch (MI.getOpcode()) {
-    case X86::MOV8mi:{
-      std::random_device seed_gen;
-      std::mt19937_64 mt(seed_gen());
-      uint8_t Rnd = (uint8_t)(mt() & 0xff);
-      uint8_t Imm = (uint8_t)Lit.getImm();
-      unsigned XOROpc = X86::XOR8mi;
-      // replace literal operand by rnd
-      MI.RemoveOperand(LitOffset);
-      MachineOperand OpRnd = MachineOperand::CreateImm(Rnd);
-      MI.addOperand(OpRnd);
-      
-      addRegOffset(BuildMI(*PMBB, Iter, MI.getDebugLoc(), TII->get(XOROpc)), X86::RBP, true, Offset)
+  case X86::MOV8mi: {
+    std::random_device seed_gen;
+    std::mt19937_64 mt(seed_gen());
+    uint8_t Rnd = (uint8_t)(mt() & 0xff);
+    uint8_t Imm = (uint8_t)Lit.getImm();
+    unsigned XOROpc = X86::XOR8mi;
+    // replace literal operand by rnd
+    MI.RemoveOperand(LitOffset);
+    MachineOperand OpRnd = MachineOperand::CreateImm(Rnd);
+    MI.addOperand(OpRnd);
+
+    addRegOffset(BuildMI(*PMBB, Iter, MI.getDebugLoc(), TII->get(XOROpc)),
+                 X86::RBP, true, Offset)
         .addImm(Rnd ^ Imm);
-      break;
-    }
-    case X86::MOV16mi:{
-      std::random_device seed_gen;
-      std::mt19937_64 mt(seed_gen());
-      uint16_t Rnd = (uint16_t)(mt() & 0xffff);
-      uint16_t Imm = (uint16_t)Lit.getImm();
-      unsigned XOROpc = X86::XOR16mi;
-      // replace literal operand by rnd
-      MI.RemoveOperand(LitOffset);
-      MachineOperand OpRnd = MachineOperand::CreateImm(Rnd);
-      MI.addOperand(OpRnd);
-      
-      addRegOffset(BuildMI(*PMBB, Iter, MI.getDebugLoc(), TII->get(XOROpc)), X86::RBP, true, Offset)
+    break;
+  }
+  case X86::MOV16mi: {
+    std::random_device seed_gen;
+    std::mt19937_64 mt(seed_gen());
+    uint16_t Rnd = (uint16_t)(mt() & 0xffff);
+    uint16_t Imm = (uint16_t)Lit.getImm();
+    unsigned XOROpc = X86::XOR16mi;
+    // replace literal operand by rnd
+    MI.RemoveOperand(LitOffset);
+    MachineOperand OpRnd = MachineOperand::CreateImm(Rnd);
+    MI.addOperand(OpRnd);
+
+    addRegOffset(BuildMI(*PMBB, Iter, MI.getDebugLoc(), TII->get(XOROpc)),
+                 X86::RBP, true, Offset)
         .addImm(Rnd ^ Imm);
-      break;
-    }
-    case X86::MOV32mi:{
-      std::random_device seed_gen;
-      std::mt19937_64 mt(seed_gen());
-      uint32_t Rnd = (uint32_t)(mt() & 0xffffffff);
-      uint32_t Imm = (uint32_t)Lit.getImm();
-      unsigned XOROpc = X86::XOR32mi;
-      // replace literal operand by rnd
-      MI.RemoveOperand(LitOffset);
-      MachineOperand OpRnd = MachineOperand::CreateImm(Rnd);
-      MI.addOperand(OpRnd);
-      
-      addRegOffset(BuildMI(*PMBB, Iter, MI.getDebugLoc(), TII->get(XOROpc)), X86::RBP, true, Offset)
+    break;
+  }
+  case X86::MOV32mi: {
+    std::random_device seed_gen;
+    std::mt19937_64 mt(seed_gen());
+    uint32_t Rnd = (uint32_t)(mt() & 0xffffffff);
+    uint32_t Imm = (uint32_t)Lit.getImm();
+    unsigned XOROpc = X86::XOR32mi;
+    // replace literal operand by rnd
+    MI.RemoveOperand(LitOffset);
+    MachineOperand OpRnd = MachineOperand::CreateImm(Rnd);
+    MI.addOperand(OpRnd);
+
+    addRegOffset(BuildMI(*PMBB, Iter, MI.getDebugLoc(), TII->get(XOROpc)),
+                 X86::RBP, true, Offset)
         .addImm(Rnd ^ Imm);
-      break;
-    }
-    case X86::MOV64mi32:{
-      std::random_device seed_gen;
-      std::mt19937_64 mt(seed_gen());
-      uint32_t Rnd = (uint32_t)(mt() & 0xffffffff);
-      uint32_t Imm = (uint32_t)Lit.getImm();
-      unsigned XOROpc = X86::XOR64mi32;
-      // replace literal operand by rnd
-      MI.RemoveOperand(LitOffset);
-      MachineOperand OpRnd = MachineOperand::CreateImm(Rnd);
-      MI.addOperand(OpRnd);
-      
-      addRegOffset(BuildMI(*PMBB, Iter, MI.getDebugLoc(), TII->get(XOROpc)), X86::RBP, true, Offset)
+    break;
+  }
+  case X86::MOV64mi32: {
+    std::random_device seed_gen;
+    std::mt19937_64 mt(seed_gen());
+    uint32_t Rnd = (uint32_t)(mt() & 0xffffffff);
+    uint32_t Imm = (uint32_t)Lit.getImm();
+    unsigned XOROpc = X86::XOR64mi32;
+    // replace literal operand by rnd
+    MI.RemoveOperand(LitOffset);
+    MachineOperand OpRnd = MachineOperand::CreateImm(Rnd);
+    MI.addOperand(OpRnd);
+
+    addRegOffset(BuildMI(*PMBB, Iter, MI.getDebugLoc(), TII->get(XOROpc)),
+                 X86::RBP, true, Offset)
         .addImm(Rnd ^ Imm);
-      break;
-    }
-    default:
-      assert(1 && "unreachable");
+    break;
+  }
+  default:
+    assert(1 && "unreachable");
   }
 }
